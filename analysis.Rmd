@@ -1,0 +1,188 @@
+---
+title: "Pitching Repertoire of Trevor Bauer - STAT 432 Analysis I"
+author: "Justin Kim (yundong2@illinois.edu)"
+date: "05/04/2021"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    theme: default
+    toc: yes
+---
+
+```{r, setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align = 'center')
+```
+
+```{r, load-packages, include = FALSE}
+# load packages
+
+library(tibble)     # data frame printing
+library(dplyr)      # data manipulation
+
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(caret)
+```
+
+```{r read-data, warning = FALSE, message = FALSE}
+# read subset of data
+pitches_2019_regular_04 = readr::read_csv("data/pitches-2019-regular-04.csv")
+pitches_2019_regular_05 = readr::read_csv("data/pitches-2019-regular-05.csv")
+pitches_2019_regular_06 = readr::read_csv("data/pitches-2019-regular-06.csv")
+pitches_2019_regular_07 = readr::read_csv("data/pitches-2019-regular-07.csv")
+pitches_2019_regular_08 = readr::read_csv("data/pitches-2019-regular-08.csv")
+pitches_2019_regular_09 = readr::read_csv("data/pitches-2019-regular-09.csv")
+pitches_2019_post = readr::read_csv("data/pitches-2019-post.csv")
+```
+
+```{r}
+# merge regular season data
+pitches_2019_regular = dplyr::bind_rows(
+  pitches_2019_regular_04,
+  pitches_2019_regular_05,
+  pitches_2019_regular_06,
+  pitches_2019_regular_07,
+  pitches_2019_regular_08,
+  pitches_2019_regular_09
+)
+
+
+#PREDICTING BAUER PITCHES 
+#filtering by bauer and removing unwanted columns
+bauer = pitches_2019_regular[pitches_2019_regular["pitcher_last"] == "Bauer", -c(3:8,11) ]
+
+
+#factoring pitch types
+bauer$pitch_type = factor(bauer$pitch_type)
+
+#remove NA
+bauer = na.omit(bauer)
+
+#train test split
+trn_idx = sample(nrow(bauer), size = 0.8 * nrow(bauer))
+trn = bauer[trn_idx, ]
+tst = bauer[-trn_idx, ]
+
+
+#accuracy function
+calc_accuracy = function(actual, predicted) {
+  mean(actual == predicted)
+}
+
+
+#k values to consider
+k_val = seq(1,101, by = 2)
+
+#funciton to fit knn
+fit_knn_to_trn = function(k) {
+  knn3(pitch_type~release_speed + release_pos_x + release_pos_y + release_pos_z + pfx_x + pfx_z + plate_x + plate_z + vx0 + vy0 + vz0 + ax + ay + az + effective_speed + release_spin_rate + release_extension, trn, k = k)
+}
+
+knn_mods = lapply(k_val, fit_knn_to_trn)
+knn_preds = lapply(knn_mods, predict, tst, type = "class")
+knn_accuracy = sapply(knn_preds, calc_accuracy, actual = tst$pitch_type)
+
+
+#cp values to consider
+cp_vals = c(1, 0.1, 0.01, 0.001, 0.0001, 0)
+
+fit_tree_trn = function(cp) {
+  rpart(pitch_type~release_speed + release_pos_x + release_pos_y + release_pos_z + pfx_x + pfx_z + plate_x + plate_z + vx0 + vy0 + vz0 + ax + ay + az + effective_speed + release_spin_rate + release_extension, data = trn, cp = cp, minsplit = 5)
+}
+#fit tree
+tree_mods = lapply(cp_vals, fit_tree_trn)
+# make predictions
+tree_preds = lapply(tree_mods, predict, tst, type = "class")
+
+#calculate acc
+cp_accuracy = sapply(tree_preds, calc_accuracy, actual = tst$pitch_type)
+
+
+#PREDICTING USING ALL PITCHER DATA
+
+pitches_2019 = pitches_2019_regular[,-c(3:8,11)]
+pitches_2019$pitch_type = factor(pitches_2019$pitch_type)
+pitches_2019 = na.omit(pitches_2019)
+
+#tst train split
+all_trn_idx = sample(nrow(pitches_2019), size = 0.8 * nrow(pitches_2019))
+all_trn = pitches_2019[trn_idx, ]
+all_tst = pitches_2019[-trn_idx, ]
+
+all_pitchers_tree = rpart(pitch_type~release_speed + release_pos_x + release_pos_y + release_pos_z + pfx_x + pfx_z + plate_x + plate_z + vx0 + vy0 + vz0 + ax + ay + az + effective_speed + release_spin_rate + release_extension, data = all_trn, cp = 0.01)
+all_pitchers_pred = predict(all_pitchers_tree, all_tst, type = "class")
+acc_all = calc_accuracy(all_tst$pitch_type, all_pitchers_pred)
+
+```
+
+***
+
+## Abstract
+
+The goal of this analysis is to develop a method that can help fans know what pitches are being thrown in a setting such as a live broadcasted MLB game. Machine learning methods such as KNN and decision trees were used to build model and predict what pitches were being thrown. The results indicate that it is easier and more accurate to predict a pitcher's pitch using the pitching data from the specific pitcher, instead of predicting using several pitching data from different pitchers. This means if we know what pitches a specific pitcher has thrown before, the more accurate prediction we will be able to make for the classifier.
+
+***
+
+## Introduction
+
+It is extremely difficult to identify what pitch a pitcher is throwing by looking at the pitch. This is because no pitcher in the world throws the same pitch as another pitcher. Each pitcher has their own unique qualities, such as their delivery form, their grip and release point, the velocity and spin rate of their pitch, horizontal and vertical movement, and more. Each pitcher's unique delivery makes it hard to classify a pitch with an overall criteria. However, a common theme all pitchers share, is that they will have consistent qualities in throwing certain pitches, making it easier to classify pitches by pitchers. This means it becomes easier to classify pitches by a pitcher, instead of several pitchers. 
+
+It is difficult for average fans to identify what pitches a pitcher is throwing. Instead, we will train a machine to detect pitch type thrown by the pitcher. This will be useful in live MLB games, where there could be deep learning computer live that could tell what pitch a pitcher has thrown by analyzing the pitch thrown. 
+
+***
+
+## Methods
+
+To prove that it is easier to classify a specific pitcher's pitches given the pitcher's data, we will look at Trevor Bauer, one of MLB's best pitchers currently. First, we subset pitches thrown by last name "Bauer," since there are no other pitchers with last name "Bauer" currently playing in the league. We also remove unwanted columns such as batter name and date, and remove and NA values before working with the data.
+
+We first split the data into test and training data, by randomly selecting 80% of Bauer pitching data to be the training data, and the remaining 20% to be test data. Then we use knn3 function to fit a model to classify by "pitch_types." Because we do not know the best K value for fitting, we fit several k values from 1 to 100 by increments of 2, and choose the model with the highest test accuracy. We find that the highest test accuracy comes from k value 1, with test accuracy of 97.2%. 
+
+Accuracy of 97.5% is very good, but we see if fitting a Decision Tree on the data can yield better results. By following the same procedures as KNN on the train data, we fit several cp values to the decision tree and choose the model which had the highest test accuracy for predicting pitcher types. We see that cp value of 0.00001 had the highest accuracy of 99.85%.
+
+
+
+### Data
+
+The dataset used is a dataset of pitches from a particular month of the 2019 regular season. Each row is a specific pitch thrown by a pitcher, with information of the pitch, such as speed and location. Below are the important columns of the dataset that will be used for modeling.
+
+* pitch_type : Type of pitch thrown
+* release_speed: Pitch velocity
+* release_pos_x: Horizontal Release Position of the ball measured in feet from the catcher's perspective.
+* release_pos_y: Release position of pitch measured in feet from the catcher's perspective.
+* release_pos_z: Vertical Release Position of the ball measured in feet from the catcher's perspective.
+* pfx_x: Horizontal movement in feet from the catcher's perspective.
+* pfx_z Vertical movement in feet from the catcher's perpsective.
+* plate_x: Horizontal position of the ball when it crosses home plate from the catcher's perspective.
+* plate_z: Vertical position of the ball when it crosses home plate from the catcher's perspective.
+* vx0, vy0, vz0:The velocity of the pitch, in feet per second, in x,y,z-dimension, determined at y=50 feet.
+* ax, ay, az: the acceleration of the pitch, measured at the initial point in 3D (ft/s)
+* effective_speed: Derived speed based on the the extension of the pitcher's release.
+* release_spin_rate: Spin rate of pitch
+* release_extension: Release extension of pitch in feet as tracked by Statcast.
+
+The information of these variables were pulled from the Statcast Search CSV documentation.
+
+***
+
+## Results
+
+```{r}
+c(max(cp_accuracy), acc_all)
+
+#spin rate vs speed for all pitchers vs one pitcher
+ggplot(data = all_trn, aes(x= release_spin_rate, y = effective_speed, col = pitch_type)) + geom_point() + ggtitle("Scatterplot of Classifying Pitches for All Pitchers")
+ggplot(data = trn, aes(x= release_spin_rate, y = effective_speed, col = pitch_type)) + geom_point() + ggtitle("Scatterplot of Classifying Pitches thrown by Bauer using Bauer's pitching data")
+```
+
+Our results show higher accuracy for classifying and predicting pitches when subsetting for pitches. When predicting Bauer's pitch using pitches thrown by Bauer, we reached accuracy up to 99.85%. When predicting pitches by classifying pitches thrown by several pitchers, we were not able to obtain high accuracy. The scatterplots shown reinforces this. When plotting release spin rate vs effective speed for pitches thrown by Bauer, we do not see many overlapping pitches, in big contrast with the first scatter plot. We see how much easier it is to classify a pitch type than the 1st graph of all pitchers.
+
+***
+
+## Discussion
+
+Our results show that it is easier and much more accurate to predict a pitcher's pitch when subsetting by specific pitchers. When predicting pitches thrown by Trevor Bauer, we were able to reach high accuracy. However, when predicting pitchers without subsetting by specific pitchers, it became harder to predict what pitch was thrown, and we achieved low accuracy. This is because, as stated before, each pitcher is unique, and each pitch is unique. For example, is more to a regular four-seam fastball than its velocity and its straight delivery. Some pitchers throw four-seam fastballs with high spin-rate, which may result in higher vertical movement than others. Another example is how pitchers throw sliders and curve-balls differently. They may throw it at different speeds and less spin rate resulting in different type of movements at the plate. Some pitches have obscure boundaries of what type of pitch it is, even if defined by the pitches. Some pitchers may throw a slider that is similar to a cutter, and some may throw a two seam fastball that is similar to a cutter, which shows how important it is to obtain data of what pitch is thrown, identified by the pitcher.
+
+An obvious weakness of this method of classifying a pitch is that it would not work as well if there are no prior hand information of the pitcher. Well established pitchers such as Trevor Bauer and Gerrit Cole have been in the major leagues for a long time and thus many data collected about their pitches and what type of pitches thrown. For pitchers that are new to the big leagues, such as pitchers called up from the minor leagues, we would have to rely on the less accurate method of predicting pitches using all pitchers data.
+
